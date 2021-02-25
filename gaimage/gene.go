@@ -13,24 +13,39 @@ import (
 	"time"
 )
 
+const ImageSize = 100
+const GenrationCount = 50000
+const PopulationCount = 100
+const EliteCount = 50
+const TournamentCount = 2
+const GeneCount = 200
+const ShapeSizeMin = 4
+const ShapeSizeMax = 20
+const LocusCount = 10
+const MutateRatio = 0.3
+
+const LogStride = 100
+
 func Run() {
-	targetImage, _ := os.Open("./soba.png")
+	targetImage, _ := os.Open(fmt.Sprintf("./soba%v.png", ImageSize))
 	defer targetImage.Close()
 	target, err := png.Decode(targetImage)
 	if err != nil {
 		log.Fatal("decode error ", err)
 	}
 
-	p := NewPopulation(target, 40)
-	p.PrintFitnesses()
-	for i := 0; i < 3000; i++ {
+	p := NewPopulation(target, PopulationCount)
+	p.PrintAverageFitness()
+	for i := 0; i < GenrationCount; i++ {
 		p.Next()
-		p.PrintFitnesses()
+		p.PrintAverageFitness()
 
-		if i%100 == 0 {
+		if i%LogStride == 0 {
 			func() {
-				img := p.Survivor().Decode()
-				f, _ := os.Create(fmt.Sprintf("./results/gen-%v.png", p.Generation))
+				c := p.Survivor()
+				c.CheckGenes()
+				img := c.Decode()
+				f, _ := os.Create(fmt.Sprintf("./results/gen-%05d-%05d.png", p.Generation, int(c.fitness/1e10)))
 				defer f.Close()
 				png.Encode(f, img)
 			}()
@@ -67,7 +82,7 @@ func NewPopulation(target image.Image, num int) *Population {
 	p.Target = target
 	p.Individuals = make([]*Chromosome, num)
 	for i := 0; i < num; i++ {
-		p.Individuals[i] = NewChromosome(1000)
+		p.Individuals[i] = NewChromosome(GeneCount)
 	}
 	return p
 }
@@ -75,12 +90,13 @@ func NewPopulation(target image.Image, num int) *Population {
 func (p *Population) Next() {
 	p.sortIndividualsByFitness()
 
-	next := append([]*Chromosome{}, p.Individuals[:5]...)
-	for i := 0; i < 35; i++ {
-		i1 := p.tournament(2)
-		i2 := p.tournament(2)
-		i3 := p.intersect(i1, i2)
-		i3.Mutate(10)
+	elites := p.Individuals[:EliteCount]
+	next := append([]*Chromosome{}, elites...)
+	for i := 0; i < PopulationCount-EliteCount; i++ {
+		i1 := p.tournament(TournamentCount)
+		i2 := p.tournament(TournamentCount)
+		i3 := i1.Intersect(i2)
+		i3.Mutate(int(GeneCount * MutateRatio))
 		next = append(next, i3)
 	}
 	p.Individuals = next
@@ -111,26 +127,13 @@ func (p *Population) tournament(count int) *Chromosome {
 	return c
 }
 
-func (p *Population) intersect(c1, c2 *Chromosome) *Chromosome {
-	c := &Chromosome{}
-	c.Genes = make([]*Gene, len(c1.Genes))
-	for i := 0; i < len(c.Genes); i++ {
-		if rand.Float64() < 0.5 {
-			c.Genes[i] = c1.Genes[i]
-		} else {
-			c.Genes[i] = c2.Genes[i]
-		}
-	}
-	return c
-}
-
-func (p *Population) PrintFitnesses() {
+func (p *Population) PrintAverageFitness() {
 	sum := 0.
 	for _, in := range p.Individuals {
 		f := in.Fitness(p.Target)
 		sum += f
 	}
-	log.Printf("%v:ave: %v\n", p.Generation, sum/float64(len(p.Individuals)))
+	log.Printf("gen:%v - ave:%v\n", p.Generation, sum/float64(len(p.Individuals)))
 }
 
 type Chromosome struct {
@@ -147,10 +150,32 @@ func NewChromosome(num int) *Chromosome {
 	return c
 }
 
-func (c *Chromosome) Mutate(num int) {
-	for i := 0; i < num; i++ {
-		g := c.Genes[int(rand.Intn(len(c.Genes)))]
-		g.Mutate()
+func (c1 *Chromosome) Intersect(c2 *Chromosome) *Chromosome {
+	c := &Chromosome{}
+	ratio1 := c1.fitness / (c1.fitness + c2.fitness)
+	count1 := int(GeneCount * ratio1)
+	c.Genes = make([]*Gene, len(c1.Genes))
+	for i := 0; i < count1; i++ {
+		c.Genes[i] = c1.Genes[i]
+	}
+	for i := count1; i < len(c.Genes); i++ {
+		c.Genes[i] = c2.Genes[i]
+	}
+	/*
+		for i := 0; i < len(c.Genes); i++ {
+			if rand.Float64() < ratio1 {
+				c.Genes[i] = c1.Genes[i]
+			} else {
+				c.Genes[i] = c2.Genes[i]
+			}
+		}
+	*/
+	return c
+}
+
+func (c *Chromosome) Mutate(geneCount int) {
+	for i := 0; i < geneCount; i++ {
+		c.Genes[int(rand.Intn(len(c.Genes)))] = NewGene(time.Now().UnixNano())
 	}
 }
 
@@ -160,8 +185,8 @@ func (c *Chromosome) Fitness(target image.Image) float64 {
 	}
 
 	result := c.Decode()
-	for y := 0; y < 200; y++ {
-		for x := 0; x < 200; x++ {
+	for y := 0; y < ImageSize; y++ {
+		for x := 0; x < ImageSize; x++ {
 			tr, tg, tb, _ := target.At(x, y).RGBA()
 			rr, rg, rb, _ := result.At(x, y).RGBA()
 			c.fitness += math.Abs(float64(tr-rr)) + math.Abs(float64(tg-rg)) + math.Abs(float64(tb-rb))
@@ -170,8 +195,22 @@ func (c *Chromosome) Fitness(target image.Image) float64 {
 	return c.fitness
 }
 
+func (c *Chromosome) CheckGenes() {
+	for _, g := range c.Genes {
+		if !g.Check() {
+			log.Fatal(g)
+		}
+	}
+}
+
 func (c *Chromosome) Decode() *image.RGBA {
-	img := image.NewRGBA(image.Rect(0, 0, 200, 200))
+	img := image.NewRGBA(image.Rect(0, 0, ImageSize, ImageSize))
+	for y := 0; y < ImageSize; y++ {
+		for x := 0; x < ImageSize; x++ {
+			img.Set(x, y, color.White)
+		}
+	}
+
 	sort.Slice(c.Genes, func(i, j int) bool {
 		gi := c.Genes[i]
 		gj := c.Genes[j]
@@ -185,7 +224,7 @@ func (c *Chromosome) Decode() *image.RGBA {
 }
 
 type Gene struct {
-	Properties [10]float64
+	Properties [LocusCount]float64
 }
 
 func NewGene(seed int64) *Gene {
@@ -197,8 +236,13 @@ func NewGene(seed int64) *Gene {
 	return gene
 }
 
-func (g *Gene) Mutate() {
-	g.Properties[rand.Intn(len(g.Properties))] = rand.Float64()
+func (g *Gene) Check() bool {
+	for _, p := range g.Properties {
+		if p < 0 || 1 < p {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *Gene) Shape() Shape {
@@ -221,8 +265,14 @@ type shapeCommon struct {
 
 func newShapeCommon(props [10]float64) shapeCommon {
 	return shapeCommon{
-		&Vector2{props[LocusX] * 200, props[LocusY] * 200},
-		&Vector2{props[LocusWidth] * 30, props[LocusHeight] * 30},
+		&Vector2{
+			props[LocusX] * ImageSize,
+			props[LocusY] * ImageSize,
+		},
+		&Vector2{
+			props[LocusWidth]*(ShapeSizeMax-ShapeSizeMin) + ShapeSizeMin,
+			props[LocusHeight]*(ShapeSizeMax-ShapeSizeMin) + ShapeSizeMin,
+		},
 		color.RGBA{
 			uint8(props[LocusR] * 256),
 			uint8(props[LocusG] * 256),
@@ -233,7 +283,7 @@ func newShapeCommon(props [10]float64) shapeCommon {
 }
 
 func (s *shapeCommon) _blend(base uint32, added, alpha uint8) uint8 {
-	a := float64(alpha) / 255
+	a := 0.5 + float64(alpha)/511 // 0.5 <= alpha < 1.0
 	return uint8(float64(base)*(1-a) + float64(added)*a)
 
 }
