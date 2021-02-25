@@ -1,6 +1,7 @@
 package gaimage
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -21,10 +22,23 @@ func Run() {
 	}
 
 	p := NewPopulation(target, 40)
-	p.Next()
+	p.PrintFitnesses()
+	for i := 0; i < 3000; i++ {
+		p.Next()
+		p.PrintFitnesses()
 
-	img := p.Individuals[0].Decode()
-	f, _ := os.Create("./image.png")
+		if i%100 == 0 {
+			func() {
+				img := p.Survivor().Decode()
+				f, _ := os.Create(fmt.Sprintf("./results/gen-%v.png", p.Generation))
+				defer f.Close()
+				png.Encode(f, img)
+			}()
+		}
+	}
+
+	img := p.Survivor().Decode()
+	f, _ := os.Create("./result.png")
 	defer f.Close()
 	png.Encode(f, img)
 }
@@ -43,6 +57,7 @@ const (
 )
 
 type Population struct {
+	Generation  int
 	Target      image.Image
 	Individuals []*Chromosome
 }
@@ -58,14 +73,64 @@ func NewPopulation(target image.Image, num int) *Population {
 }
 
 func (p *Population) Next() {
+	p.sortIndividualsByFitness()
+
+	next := append([]*Chromosome{}, p.Individuals[:5]...)
+	for i := 0; i < 35; i++ {
+		i1 := p.tournament(2)
+		i2 := p.tournament(2)
+		i3 := p.intersect(i1, i2)
+		i3.Mutate(10)
+		next = append(next, i3)
+	}
+	p.Individuals = next
+	p.Generation += 1
+}
+
+func (p *Population) Survivor() *Chromosome {
+	p.sortIndividualsByFitness()
+	return p.Individuals[0]
+}
+
+func (p *Population) sortIndividualsByFitness() {
 	sort.Slice(p.Individuals, func(i, j int) bool {
 		fi := p.Individuals[i].Fitness(p.Target)
 		fj := p.Individuals[j].Fitness(p.Target)
 		return fi-fj < 0
 	})
-	for i, in := range p.Individuals {
-		log.Print(i, in.fitness)
+}
+
+func (p *Population) tournament(count int) *Chromosome {
+	c := p.Individuals[rand.Int63n(40)]
+	for i := 0; i < count-1; i++ {
+		c2 := p.Individuals[rand.Int63n(40)]
+		if c2.fitness < c.fitness {
+			c = c2
+		}
 	}
+	return c
+}
+
+func (p *Population) intersect(c1, c2 *Chromosome) *Chromosome {
+	c := &Chromosome{}
+	c.Genes = make([]*Gene, len(c1.Genes))
+	for i := 0; i < len(c.Genes); i++ {
+		if rand.Float64() < 0.5 {
+			c.Genes[i] = c1.Genes[i]
+		} else {
+			c.Genes[i] = c2.Genes[i]
+		}
+	}
+	return c
+}
+
+func (p *Population) PrintFitnesses() {
+	sum := 0.
+	for _, in := range p.Individuals {
+		f := in.Fitness(p.Target)
+		sum += f
+	}
+	log.Printf("%v:ave: %v\n", p.Generation, sum/float64(len(p.Individuals)))
 }
 
 type Chromosome struct {
@@ -80,6 +145,13 @@ func NewChromosome(num int) *Chromosome {
 		c.Genes[i] = NewGene(time.Now().UnixNano())
 	}
 	return c
+}
+
+func (c *Chromosome) Mutate(num int) {
+	for i := 0; i < num; i++ {
+		g := c.Genes[int(rand.Intn(len(c.Genes)))]
+		g.Mutate()
+	}
 }
 
 func (c *Chromosome) Fitness(target image.Image) float64 {
@@ -125,6 +197,10 @@ func NewGene(seed int64) *Gene {
 	return gene
 }
 
+func (g *Gene) Mutate() {
+	g.Properties[rand.Intn(len(g.Properties))] = rand.Float64()
+}
+
 func (g *Gene) Shape() Shape {
 	if g.Properties[LocusKind] < 0.5 {
 		return NewRectangle(g.Properties)
@@ -162,10 +238,10 @@ func (s *shapeCommon) _blend(base uint32, added, alpha uint8) uint8 {
 
 }
 
-func (s *shapeCommon) blend(img *image.RGBA, x, y int) {
+func (s *shapeCommon) blend(baseImage *image.RGBA, x, y int) {
 	c := s.Color
-	r, g, b, _ := img.At(x, y).RGBA()
-	img.Set(x, y, color.RGBA{
+	r, g, b, _ := baseImage.At(x, y).RGBA()
+	baseImage.Set(x, y, color.RGBA{
 		s._blend(r, c.R, c.A),
 		s._blend(g, c.G, c.A),
 		s._blend(b, c.B, c.A),
@@ -181,21 +257,16 @@ func (s *shapeCommon) drawOn(img *image.RGBA, area func(cx, cy, w, h, x, y, ar, 
 	ar := w / h
 	r := w / 2.
 
-	//var wg sync.WaitGroup
-	for yi := 0; yi < 200; yi++ {
-		y := float64(yi)
-		for xi := 0; xi < 200; xi++ {
-			x := float64(xi)
+	for dy := -h / 2; dy < h/2; dy++ {
+		y := cy + dy
+		yi := int(y)
+		for dx := -w / 2; dx < w/2; dx++ {
+			x := cx + dx
 			if area(cx, cy, w, h, x, y, ar, r) {
-				//wg.Add(1)
-				//go func() {
-				//defer wg.Done()
-				s.blend(img, xi, yi)
-				//}()
+				s.blend(img, int(x), yi)
 			}
 		}
 	}
-	//wg.Wait()
 }
 
 type Rectangle struct {
