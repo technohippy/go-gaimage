@@ -13,30 +13,36 @@ import (
 	"time"
 )
 
-const UseAlpha = true
+const UseAlpha = false
 const UseGeneMutate = true // true:mutate false:replace
 
-//const ImageName = "fuji"
-const ImageName = "germany"
-const ImageSize = 100
+const ImageName = "soba"
+
+//const ImageName = "germany"
+//const ImageName = "maru"
+const ImageSize = 200
 
 const GenrationCount = 50000
 const PopulationCount = 40
-const EliteCount = PopulationCount / 2
+const EliteCount = PopulationCount / 4
 const TournamentCount = 2
 
-const GeneCount = 100
+const GeneCount = 400
 const MutateRatio = 0.5
 
 //const GeneCount = 20
 //const MutateRatio = 0.5
 
-const MutateProbability = 0.1
+const MutateProbability = 0.2
 const ShapeSizeMin = 4
 const ShapeSizeMax = 30
-const LocusCount = 10
+const LocusCount = 10 // 7 (monotone) or 10 (colored)
 
 const LogStride = 100
+
+func monocolor() bool {
+	return LocusCount == 7
+}
 
 func Run() {
 	rand.Seed(time.Now().UnixNano())
@@ -68,7 +74,11 @@ func Run() {
 				png.Encode(f, img)
 
 				if i%(LogStride*10) == 0 {
-					f, _ = os.Create(fmt.Sprintf("./results/gen-%05d-%05d.png", p.Generation, int(c.Fitness/1e10)))
+					if monocolor() {
+						f, _ = os.Create(fmt.Sprintf("./results/gen-%05d-%05d.png", p.Generation, int(c.Fitness/1e5)))
+					} else {
+						f, _ = os.Create(fmt.Sprintf("./results/gen-%05d-%05d.png", p.Generation, int(c.Fitness/1e5)))
+					}
 					defer f.Close()
 					png.Encode(f, img)
 				}
@@ -226,21 +236,6 @@ func (c1 *Chromosome) Intersect(c2 *Chromosome) *Chromosome {
 	}
 	return c
 }
-
-func (c *Chromosome) Clone() *Chromosome {
-	clone := &Chromosome{}
-	clone.Genes = make([]*Gene, len(c.Genes))
-	for i, g := range c.Genes {
-		clone.Genes[i] = g.Clone()
-	}
-	return clone
-}
-
-func (c *Chromosome) Reset() {
-	c.Fitness = 0.
-	c.Phenotype = nil
-}
-
 func (c *Chromosome) Mutate(geneCount int) {
 	for i := 0; i < geneCount; i++ {
 		r := rand.Intn(len(c.Genes))
@@ -268,9 +263,17 @@ func (c *Chromosome) CalculateFitness(target image.Image) float64 {
 	result := c.Image()
 	for y := 0; y < ImageSize; y++ {
 		for x := 0; x < ImageSize; x++ {
-			tr, tg, tb, _ := target.At(x, y).RGBA()
-			rr, rg, rb, _ := result.At(x, y).RGBA()
-			c.Fitness += math.Abs(float64(tr-rr)) + math.Abs(float64(tg-rg)) + math.Abs(float64(tb-rb))
+			if monocolor() {
+				tr, tg, tb, _ := target.At(x, y).RGBA()
+				gray := float64(tr)*0.3 + float64(tg)*0.59 + float64(tb)*0.11
+				rr, _, _, _ := result.At(x, y).RGBA()
+				c.Fitness += math.Abs(gray - float64(rr))
+			} else {
+				tr, tg, tb, _ := target.At(x, y).RGBA()
+				rr, rg, rb, _ := result.At(x, y).RGBA()
+				c.Fitness += math.Abs(float64(tr)-float64(rr)) + math.Abs(float64(tg)-float64(rg)) + math.Abs(float64(tb)-float64(rb))
+
+			}
 		}
 	}
 	return c.Fitness
@@ -284,6 +287,20 @@ func (c *Chromosome) CheckGenes() {
 	}
 }
 
+func (c *Chromosome) Clone() *Chromosome {
+	clone := &Chromosome{}
+	clone.Genes = make([]*Gene, len(c.Genes))
+	for i, g := range c.Genes {
+		clone.Genes[i] = g.Clone()
+	}
+	return clone
+}
+
+func (c *Chromosome) Reset() {
+	c.Fitness = 0.
+	c.Phenotype = nil
+}
+
 func (c *Chromosome) Decode() *image.RGBA {
 	c.Phenotype = image.NewRGBA(image.Rect(0, 0, ImageSize, ImageSize))
 	for y := 0; y < ImageSize; y++ {
@@ -292,11 +309,14 @@ func (c *Chromosome) Decode() *image.RGBA {
 		}
 	}
 
-	sort.Slice(c.Genes, func(i, j int) bool {
-		gi := c.Genes[i]
-		gj := c.Genes[j]
-		return gi.Properties[LocusA]-gj.Properties[LocusA] < 0
-	})
+	if !monocolor() {
+		sort.Slice(c.Genes, func(i, j int) bool {
+			gi := c.Genes[i]
+			gj := c.Genes[j]
+			locusA := LocusA
+			return gi.Properties[locusA]-gj.Properties[locusA] < 0
+		})
+	}
 	for _, gene := range c.Genes {
 		s := gene.Shape()
 		s.DrawOn(c.Phenotype)
@@ -359,7 +379,26 @@ type shapeCommon struct {
 	Color  color.RGBA
 }
 
-func newShapeCommon(props [10]float64) shapeCommon {
+func newShapeCommon(props [LocusCount]float64) shapeCommon {
+	var clr color.RGBA
+	if monocolor() {
+		clr = color.RGBA{
+			uint8(props[LocusR] * 256),
+			uint8(props[LocusR] * 256),
+			uint8(props[LocusR] * 256),
+			255,
+		}
+	} else {
+		locusG := LocusG
+		locusB := LocusB
+		locusA := LocusA
+		clr = color.RGBA{
+			uint8(props[LocusR] * 256),
+			uint8(props[locusG] * 256),
+			uint8(props[locusB] * 256),
+			uint8(props[locusA] * 256),
+		}
+	}
 	return shapeCommon{
 		&Vector2{
 			props[LocusX] * ImageSize,
@@ -369,12 +408,7 @@ func newShapeCommon(props [10]float64) shapeCommon {
 			props[LocusWidth]*(ShapeSizeMax-ShapeSizeMin) + ShapeSizeMin,
 			props[LocusHeight]*(ShapeSizeMax-ShapeSizeMin) + ShapeSizeMin,
 		},
-		color.RGBA{
-			uint8(props[LocusR] * 256),
-			uint8(props[LocusG] * 256),
-			uint8(props[LocusB] * 256),
-			uint8(props[LocusA] * 256),
-		},
+		clr,
 	}
 }
 
@@ -437,7 +471,7 @@ type Rectangle struct {
 	shapeCommon
 }
 
-func NewRectangle(props [10]float64) *Rectangle {
+func NewRectangle(props [LocusCount]float64) *Rectangle {
 	r := &Rectangle{}
 	r.shapeCommon = newShapeCommon(props)
 	return r
@@ -453,7 +487,7 @@ type Circle struct {
 	shapeCommon
 }
 
-func NewCircle(props [10]float64) *Circle {
+func NewCircle(props [LocusCount]float64) *Circle {
 	c := &Circle{}
 	c.shapeCommon = newShapeCommon(props)
 	return c
