@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const ResultsDir = "results"
+
 const UseAlpha = false
 const UseGeneMutate = true // true:mutate false:replace
 
@@ -63,33 +65,39 @@ func Run() {
 		p.Next()
 		p.PrintAverageFitness()
 
-		if i%LogStride == 0 {
-			c := p.Survivor()
-			c.CheckGenes()
-			img := c.Decode()
-
-			func() {
-				f, _ := os.Create("./results/current.png")
-				defer f.Close()
-				png.Encode(f, img)
-
-				if i%(LogStride*10) == 0 {
-					if monocolor() {
-						f, _ = os.Create(fmt.Sprintf("./results/gen-%05d-%05d.png", p.Generation, int(c.Fitness/1e5)))
-					} else {
-						f, _ = os.Create(fmt.Sprintf("./results/gen-%05d-%05d.png", p.Generation, int(c.Fitness/1e5)))
-					}
-					defer f.Close()
-					png.Encode(f, img)
-				}
-			}()
-		}
+		liveScore(i, p)
 	}
 
 	img := p.Survivor().Decode()
-	f, _ := os.Create("./result.png")
+	f, _ := os.Create(fmt.Sprintf("./%v/last.png", ResultsDir))
 	defer f.Close()
 	png.Encode(f, img)
+}
+
+func liveScore(gen int, p *Population) {
+	if gen%LogStride != 0 {
+		return
+	}
+
+	c := p.Survivor()
+	c.CheckGenes()
+	img := c.Decode()
+
+	func() {
+		f, _ := os.Create(fmt.Sprintf("./%v/current.png", ResultsDir))
+		defer f.Close()
+		png.Encode(f, img)
+
+		if gen%(LogStride*10) == 0 {
+			if monocolor() {
+				f, _ = os.Create(fmt.Sprintf("./%v/gen-%05d-%05d.png", ResultsDir, p.Generation, int(c.Fitness/1e5)))
+			} else {
+				f, _ = os.Create(fmt.Sprintf("./%v/gen-%05d-%05d.png", ResultsDir, p.Generation, int(c.Fitness/1e5)))
+			}
+			defer f.Close()
+			png.Encode(f, img)
+		}
+	}()
 }
 
 const (
