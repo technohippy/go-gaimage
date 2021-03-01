@@ -15,10 +15,10 @@ import (
 
 const ResultsDir = "results"
 
-const UseAlpha = false
+const UseAlpha = true
 const UseGeneMutate = true // true:mutate false:replace
 
-const ImageName = "soba"
+const ImageName = "cat"
 
 //const ImageName = "germany"
 //const ImageName = "maru"
@@ -29,7 +29,7 @@ const PopulationCount = 40
 const EliteCount = PopulationCount / 4
 const TournamentCount = 2
 
-const GeneCount = 400
+const GeneCount = 300
 const MutateRatio = 0.5
 
 //const GeneCount = 20
@@ -88,12 +88,8 @@ func liveScore(gen int, p *Population) {
 		defer f.Close()
 		png.Encode(f, img)
 
-		if gen%(LogStride*10) == 0 {
-			if monocolor() {
-				f, _ = os.Create(fmt.Sprintf("./%v/gen-%05d-%05d.png", ResultsDir, p.Generation, int(c.Fitness/1e5)))
-			} else {
-				f, _ = os.Create(fmt.Sprintf("./%v/gen-%05d-%05d.png", ResultsDir, p.Generation, int(c.Fitness/1e5)))
-			}
+		if gen < 1000 || gen%(LogStride*10) == 0 {
+			f, _ = os.Create(fmt.Sprintf("./%v/gen-%05d-%05d.png", ResultsDir, p.Generation, int(c.Fitness/1e5)))
 			defer f.Close()
 			png.Encode(f, img)
 		}
@@ -117,6 +113,7 @@ type Population struct {
 	Generation  int
 	Target      image.Image
 	Individuals []*Chromosome
+	fitnessFunc func(image.Image, int, int) float64
 }
 
 func NewPopulation(target image.Image, num int) *Population {
@@ -125,6 +122,20 @@ func NewPopulation(target image.Image, num int) *Population {
 	p.Individuals = make([]*Chromosome, num)
 	for i := 0; i < num; i++ {
 		p.Individuals[i] = NewChromosome(GeneCount)
+	}
+	if monocolor() {
+		p.fitnessFunc = func(result image.Image, x int, y int) float64 {
+			tr, tg, tb, _ := p.Target.At(x, y).RGBA()
+			gray := float64(tr)*0.3 + float64(tg)*0.59 + float64(tb)*0.11
+			rr, _, _, _ := result.At(x, y).RGBA()
+			return math.Abs(gray - float64(rr))
+		}
+	} else {
+		p.fitnessFunc = func(result image.Image, x int, y int) float64 {
+			tr, tg, tb, _ := p.Target.At(x, y).RGBA()
+			rr, rg, rb, _ := result.At(x, y).RGBA()
+			return math.Abs(float64(tr)-float64(rr)) + math.Abs(float64(tg)-float64(rg)) + math.Abs(float64(tb)-float64(rb))
+		}
 	}
 	return p
 }
@@ -161,8 +172,8 @@ func (p *Population) Survivor() *Chromosome {
 
 func (p *Population) sortIndividualsByFitness() {
 	sort.Slice(p.Individuals, func(i, j int) bool {
-		fi := p.Individuals[i].CalculateFitness(p.Target)
-		fj := p.Individuals[j].CalculateFitness(p.Target)
+		fi := p.Individuals[i].CalculateFitness(p.fitnessFunc)
+		fj := p.Individuals[j].CalculateFitness(p.fitnessFunc)
 		return fi-fj < 0
 	})
 }
@@ -198,7 +209,7 @@ func (p *Population) tournament(count int) *Chromosome {
 func (p *Population) PrintAverageFitness() {
 	sum := 0.
 	for _, in := range p.Individuals {
-		f := in.CalculateFitness(p.Target)
+		f := in.CalculateFitness(p.fitnessFunc)
 		sum += f
 	}
 	log.Printf("gen:%v - ave:%v\n", p.Generation, sum/float64(len(p.Individuals)))
@@ -263,7 +274,7 @@ func (c *Chromosome) Image() *image.RGBA {
 	return c.Decode()
 }
 
-func (c *Chromosome) CalculateFitness(target image.Image) float64 {
+func (c *Chromosome) CalculateFitness(calc func(image.Image, int, int) float64) float64 {
 	if 0 < c.Fitness {
 		return c.Fitness
 	}
@@ -271,17 +282,7 @@ func (c *Chromosome) CalculateFitness(target image.Image) float64 {
 	result := c.Image()
 	for y := 0; y < ImageSize; y++ {
 		for x := 0; x < ImageSize; x++ {
-			if monocolor() {
-				tr, tg, tb, _ := target.At(x, y).RGBA()
-				gray := float64(tr)*0.3 + float64(tg)*0.59 + float64(tb)*0.11
-				rr, _, _, _ := result.At(x, y).RGBA()
-				c.Fitness += math.Abs(gray - float64(rr))
-			} else {
-				tr, tg, tb, _ := target.At(x, y).RGBA()
-				rr, rg, rb, _ := result.At(x, y).RGBA()
-				c.Fitness += math.Abs(float64(tr)-float64(rr)) + math.Abs(float64(tg)-float64(rg)) + math.Abs(float64(tb)-float64(rb))
-
-			}
+			c.Fitness += calc(result, x, y)
 		}
 	}
 	return c.Fitness
