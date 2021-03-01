@@ -1,15 +1,19 @@
 package gaimage
 
 import (
+	"bufio"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"log"
 	"math"
 	"math/rand"
 	"os"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,28 +23,23 @@ const UseAlpha = true
 const UseGeneMutate = true // true:mutate false:replace
 
 const ImageName = "cat"
-
-//const ImageName = "germany"
-//const ImageName = "maru"
 const ImageSize = 200
 
-const GenrationCount = 50000
+const GenrationCount = 10000 //50000
 const PopulationCount = 40
 const EliteCount = PopulationCount / 4
 const TournamentCount = 2
 
 const GeneCount = 300
 const MutateRatio = 0.5
-
-//const GeneCount = 20
-//const MutateRatio = 0.5
-
 const MutateProbability = 0.2
 const ShapeSizeMin = 4
 const ShapeSizeMax = 30
 const LocusCount = 10 // 7 (monotone) or 10 (colored)
 
 const LogStride = 100
+
+const RestoreFromDump = false
 
 func monocolor() bool {
 	return LocusCount == 7
@@ -59,31 +58,107 @@ func Run() {
 		log.Fatal("decode error ", err)
 	}
 
-	var fitnessFunc func(image.Image, int, int) float64
-	if monocolor() {
-		fitnessFunc = createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
-			gray := float64(tr)*0.3 + float64(tg)*0.59 + float64(tb)*0.11
-			return math.Abs(gray - float64(rr))
-		})
+	var p *Population
+	if !RestoreFromDump {
+		p = NewPopulation("", PopulationCount, getFitnessFunc("", target))
 	} else {
-		fitnessFunc = createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
-			return math.Abs(float64(tr)-float64(rr)) + math.Abs(float64(tg)-float64(rg)) + math.Abs(float64(tb)-float64(rb))
-		})
+		d, _ := os.Open(fmt.Sprintf("./%v/dump.txt", ResultsDir))
+		defer d.Close()
+		scanner := bufio.NewScanner(d)
+		p = NewPopulationFromDump(scanner)
+		p.FitnessFunc = getFitnessFunc(p.Name, target)
 	}
 
-	p := NewPopulation("", PopulationCount, fitnessFunc)
 	p.PrintAverageFitness()
-	for i := 0; i < GenrationCount; i++ {
+	for i := p.Generation; i < GenrationCount; i++ {
 		p.Next()
 		p.PrintAverageFitness()
 
 		liveScore(i, p)
 	}
 
-	img := p.Survivor().Decode()
-	f, _ := os.Create(fmt.Sprintf("./%v/last.png", ResultsDir))
-	defer f.Close()
-	png.Encode(f, img)
+	last, _ := os.Create(fmt.Sprintf("./%v/last.png", ResultsDir))
+	defer last.Close()
+	png.Encode(last, p.Survivor().Decode())
+
+	dump, _ := os.Create(fmt.Sprintf("./%v/dump.txt", ResultsDir))
+	defer dump.Close()
+	writer := bufio.NewWriter(dump)
+	p.Dump(writer)
+	writer.Flush()
+
+	/*
+		var wg sync.WaitGroup
+		ps := map[string]*Population{}
+		for _, mode := range []string{"r", "g", "b"} {
+			wg.Add(1)
+			go func(mode string) {
+				defer wg.Done()
+
+				p := NewPopulation(mode, PopulationCount, getFitnessFunc(mode, target))
+				ps[mode] = p
+				if mode == "r" {
+					p.PrintAverageFitness()
+				}
+				for i := 0; i < GenrationCount; i++ {
+					p.Next()
+
+					if mode == "r" {
+						p.PrintAverageFitness()
+					}
+					liveScore(i, p)
+				}
+			}(mode)
+		}
+		wg.Wait()
+
+		chr := ps["r"].Survivor().Decode()
+		chg := ps["g"].Survivor().Decode()
+		chb := ps["b"].Survivor().Decode()
+		result := image.NewRGBA(image.Rect(0, 0, ImageSize, ImageSize))
+		for y := 0; y < ImageSize; y++ {
+			for x := 0; x < ImageSize; x++ {
+				r, _, _, _ := chr.At(x, y).RGBA()
+				_, g, _, _ := chg.At(x, y).RGBA()
+				_, _, b, _ := chb.At(x, y).RGBA()
+				result.Set(x, y, color.RGBA{uint8(r), uint8(g), uint8(b), 255})
+			}
+		}
+		f, _ := os.Create(fmt.Sprintf("./%v/result.png", ResultsDir))
+		png.Encode(f, result)
+	*/
+}
+
+func getFitnessFunc(kind string, target image.Image) func(image.Image, int, int) float64 {
+	if kind == "grayscale" {
+		return createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
+			gray := float64(tr)*0.3 + float64(tg)*0.59 + float64(tb)*0.11
+			return math.Abs(gray - float64(rr))
+		})
+	} else if kind == "r" {
+		return createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
+			return math.Abs(float64(tr) - float64(rr))
+		})
+	} else if kind == "g" {
+		return createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
+			return math.Abs(float64(tg) - float64(rg))
+		})
+	} else if kind == "b" {
+		return createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
+			return math.Abs(float64(tb) - float64(rb))
+		})
+	} else {
+		if monocolor() {
+			return createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
+				gray := float64(tr)*0.3 + float64(tg)*0.59 + float64(tb)*0.11
+				return math.Abs(gray - float64(rr))
+			})
+		} else {
+			return createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
+				return math.Abs(float64(tr)-float64(rr)) + math.Abs(float64(tg)-float64(rg)) + math.Abs(float64(tb)-float64(rb))
+			})
+		}
+	}
 }
 
 func createFitnessFunc(target image.Image, f func(tr, tg, tb, rr, rg, rb uint32) float64) func(image.Image, int, int) float64 {
@@ -131,6 +206,12 @@ func NewPopulation(name string, num int, fitnessFunc func(image.Image, int, int)
 		p.Individuals[i] = NewChromosome(GeneCount)
 	}
 	p.FitnessFunc = fitnessFunc
+	return p
+}
+
+func NewPopulationFromDump(scanner *bufio.Scanner) *Population {
+	p := &Population{}
+	p.Restore(scanner)
 	return p
 }
 
@@ -209,6 +290,36 @@ func (p *Population) PrintAverageFitness() {
 	log.Printf("gen:%v - ave:%v\n", p.Generation, sum/float64(len(p.Individuals)))
 }
 
+func (p *Population) Dump(out io.Writer) {
+	fmt.Fprintf(out, "name:%v\n", p.Name)
+	fmt.Fprintf(out, "generation:%v\n", p.Generation)
+	fmt.Fprintf(out, "size:%v\n", len(p.Individuals))
+	for _, i := range p.Individuals {
+		i.Dump(out)
+	}
+}
+
+func (p *Population) Restore(scanner *bufio.Scanner) {
+	for scanner.Scan() {
+		text := scanner.Text()
+		kv := strings.Split(text, ":")
+		k := kv[0]
+		v := kv[1]
+		if k == "name" {
+			p.Name = v
+		} else if k == "generation" {
+			i, _ := strconv.Atoi(v)
+			p.Generation = int(i)
+		} else if k == "size" {
+			s, _ := strconv.Atoi(v)
+			p.Individuals = make([]*Chromosome, s)
+			for i := 0; i < s; i++ {
+				p.Individuals[i] = NewChromosomeFromDump(scanner)
+			}
+		}
+	}
+}
+
 type Chromosome struct {
 	Genes     []*Gene
 	Fitness   float64
@@ -221,6 +332,12 @@ func NewChromosome(num int) *Chromosome {
 	for i := 0; i < num; i++ {
 		c.Genes[i] = NewGene(time.Now().UnixNano())
 	}
+	return c
+}
+
+func NewChromosomeFromDump(scanner *bufio.Scanner) *Chromosome {
+	c := &Chromosome{}
+	c.Restore(scanner)
 	return c
 }
 
@@ -312,19 +429,38 @@ func (c *Chromosome) Decode() *image.RGBA {
 		}
 	}
 
-	if !monocolor() {
-		sort.Slice(c.Genes, func(i, j int) bool {
-			gi := c.Genes[i]
-			gj := c.Genes[j]
-			locusA := LocusA
-			return gi.Properties[locusA]-gj.Properties[locusA] < 0
-		})
-	}
+	sort.Slice(c.Genes, func(i, j int) bool {
+		gi := c.Genes[i]
+		gj := c.Genes[j]
+		return gi.Properties[LocusZ]-gj.Properties[LocusZ] < 0
+	})
 	for _, gene := range c.Genes {
 		s := gene.Shape()
 		s.DrawOn(c.Phenotype)
 	}
 	return c.Phenotype
+}
+
+func (c *Chromosome) Dump(out io.Writer) {
+	fmt.Fprintf(out, "size:%v\n", len(c.Genes))
+	for _, g := range c.Genes {
+		g.Dump(out)
+	}
+}
+
+func (c *Chromosome) Restore(scanner *bufio.Scanner) {
+	scanner.Scan()
+	text := scanner.Text()
+	kv := strings.Split(text, ":")
+	k := kv[0]
+	v := kv[1]
+	if k == "size" {
+		s, _ := strconv.Atoi(v)
+		c.Genes = make([]*Gene, s)
+		for i := 0; i < s; i++ {
+			c.Genes[i] = NewGeneFromDump(scanner)
+		}
+	}
 }
 
 const (
@@ -350,6 +486,12 @@ func NewGene(seed int64) *Gene {
 		gene.Properties[i] = rand.Float64()
 	}
 	return gene
+}
+
+func NewGeneFromDump(scanner *bufio.Scanner) *Gene {
+	g := &Gene{}
+	g.Restore(scanner)
+	return g
 }
 
 func (g *Gene) Clone() *Gene {
@@ -382,6 +524,32 @@ func (g *Gene) Shape() Shape {
 		return NewRectangle(g.Properties)
 	} else {
 		return NewCircle(g.Properties)
+	}
+}
+
+func (g *Gene) Dump(out io.Writer) {
+	fmt.Fprintf(out, "size:%v\n", len(g.Properties))
+	for _, p := range g.Properties {
+		fmt.Fprintf(out, "%g\n", p)
+	}
+}
+
+func (g *Gene) Restore(scanner *bufio.Scanner) {
+	scanner.Scan()
+	text := scanner.Text()
+	kv := strings.Split(text, ":")
+	k := kv[0]
+	v := kv[1]
+	if k == "size" {
+		s, _ := strconv.Atoi(v)
+		if LocusCount != s {
+			log.Fatal("local count does not match")
+		}
+		for i := 0; i < s; i++ {
+			scanner.Scan()
+			text := scanner.Text()
+			g.Properties[i], _ = strconv.ParseFloat(text, 64)
+		}
 	}
 }
 
