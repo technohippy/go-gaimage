@@ -71,7 +71,7 @@ func Run() {
 		})
 	}
 
-	p := NewPopulation(PopulationCount, fitnessFunc)
+	p := NewPopulation("", PopulationCount, fitnessFunc)
 	p.PrintAverageFitness()
 	for i := 0; i < GenrationCount; i++ {
 		p.Next()
@@ -104,12 +104,12 @@ func liveScore(gen int, p *Population) {
 	img := c.Decode()
 
 	func() {
-		f, _ := os.Create(fmt.Sprintf("./%v/current.png", ResultsDir))
+		f, _ := os.Create(fmt.Sprintf("./%v/%vcurrent.png", ResultsDir, p.Name))
 		defer f.Close()
 		png.Encode(f, img)
 
 		if gen < 1000 || gen%(LogStride*10) == 0 {
-			f, _ = os.Create(fmt.Sprintf("./%v/gen-%05d-%05d.png", ResultsDir, p.Generation, int(c.Fitness/1e5)))
+			f, _ = os.Create(fmt.Sprintf("./%v/%v%05d-%05d.png", ResultsDir, p.Name, p.Generation, int(c.Fitness/1e5)))
 			defer f.Close()
 			png.Encode(f, img)
 		}
@@ -117,13 +117,15 @@ func liveScore(gen int, p *Population) {
 }
 
 type Population struct {
+	Name        string
 	Generation  int
 	Individuals []*Chromosome
 	FitnessFunc func(image.Image, int, int) float64
 }
 
-func NewPopulation(num int, fitnessFunc func(image.Image, int, int) float64) *Population {
+func NewPopulation(name string, num int, fitnessFunc func(image.Image, int, int) float64) *Population {
 	p := &Population{}
+	p.Name = name
 	p.Individuals = make([]*Chromosome, num)
 	for i := 0; i < num; i++ {
 		p.Individuals[i] = NewChromosome(GeneCount)
