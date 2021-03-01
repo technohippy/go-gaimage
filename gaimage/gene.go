@@ -24,11 +24,13 @@ const (
 )
 
 type Gene struct {
+	Config     *GaImgConfig
 	Properties [LocusCount]float64
 }
 
-func NewGene(seed int64) *Gene {
+func NewGene(config *GaImgConfig) *Gene {
 	gene := &Gene{}
+	gene.Config = config
 	for i, _ := range gene.Properties {
 		gene.Properties[i] = rand.Float64()
 	}
@@ -43,6 +45,7 @@ func NewGeneFromDump(scanner *bufio.Scanner) *Gene {
 
 func (g *Gene) Clone() *Gene {
 	clone := &Gene{}
+	clone.Config = g.Config
 	clone.Properties = [LocusCount]float64{}
 	for i, p := range g.Properties {
 		clone.Properties[i] = p
@@ -68,9 +71,9 @@ func (g *Gene) Check() bool {
 
 func (g *Gene) Shape() Shape {
 	if g.Properties[LocusKind] < 0.5 {
-		return NewRectangle(g.Properties)
+		return NewRectangle(g.Config, g.Properties)
 	} else {
-		return NewCircle(g.Properties)
+		return NewCircle(g.Config, g.Properties)
 	}
 }
 

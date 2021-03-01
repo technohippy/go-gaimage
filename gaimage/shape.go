@@ -11,12 +11,13 @@ type Shape interface {
 }
 
 type shapeCommon struct {
+	Config *GaImgConfig
 	Center *Vector2
 	Size   *Vector2
 	Color  color.RGBA
 }
 
-func newShapeCommon(props [LocusCount]float64) shapeCommon {
+func newShapeCommon(config *GaImgConfig, props [LocusCount]float64) shapeCommon {
 	var clr color.RGBA
 	if monocolor() {
 		clr = color.RGBA{
@@ -37,13 +38,14 @@ func newShapeCommon(props [LocusCount]float64) shapeCommon {
 		}
 	}
 	return shapeCommon{
+		config,
 		&Vector2{
-			props[LocusX] * ImageSize,
-			props[LocusY] * ImageSize,
+			props[LocusX] * float64(config.imageSize),
+			props[LocusY] * float64(config.imageSize),
 		},
 		&Vector2{
-			props[LocusWidth]*(ShapeSizeMax-ShapeSizeMin) + ShapeSizeMin,
-			props[LocusHeight]*(ShapeSizeMax-ShapeSizeMin) + ShapeSizeMin,
+			props[LocusWidth]*float64(config.ShapeSizeMax-config.ShapeSizeMin) + float64(config.ShapeSizeMin),
+			props[LocusHeight]*float64(config.ShapeSizeMax-config.ShapeSizeMin) + float64(config.ShapeSizeMin),
 		},
 		clr,
 	}
@@ -59,7 +61,7 @@ func (s *shapeCommon) blend(baseImage *image.RGBA, x, y int) {
 	c := s.Color
 	r, g, b, _ := baseImage.At(x, y).RGBA()
 
-	if UseAlpha {
+	if s.Config.UseAlpha {
 		// アルファを考慮
 		baseImage.Set(x, y, color.RGBA{
 			s._blend(r, c.R, c.A),
@@ -88,13 +90,13 @@ func (s *shapeCommon) drawOn(img *image.RGBA, area func(cx, cy, w, h, x, y, ar, 
 
 	for dy := -h / 2; dy < h/2; dy++ {
 		y := cy + dy
-		if y < 0 || ImageSize < y {
+		if y < 0 || float64(s.Config.imageSize) < y {
 			continue
 		}
 		yi := int(y)
 		for dx := -w / 2; dx < w/2; dx++ {
 			x := cx + dx
-			if x < 0 || ImageSize < x {
+			if x < 0 || float64(s.Config.imageSize) < x {
 				continue
 			}
 			if area(cx, cy, w, h, x, y, ar, r) {
@@ -108,9 +110,9 @@ type Rectangle struct {
 	shapeCommon
 }
 
-func NewRectangle(props [LocusCount]float64) *Rectangle {
+func NewRectangle(config *GaImgConfig, props [LocusCount]float64) *Rectangle {
 	r := &Rectangle{}
-	r.shapeCommon = newShapeCommon(props)
+	r.shapeCommon = newShapeCommon(config, props)
 	return r
 }
 
@@ -124,9 +126,9 @@ type Circle struct {
 	shapeCommon
 }
 
-func NewCircle(props [LocusCount]float64) *Circle {
+func NewCircle(config *GaImgConfig, props [LocusCount]float64) *Circle {
 	c := &Circle{}
-	c.shapeCommon = newShapeCommon(props)
+	c.shapeCommon = newShapeCommon(config, props)
 	return c
 }
 

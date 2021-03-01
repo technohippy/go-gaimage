@@ -14,18 +14,20 @@ import (
 )
 
 type Population struct {
+	Config      *GaImgConfig
 	Name        string
 	Generation  int
 	Individuals []*Chromosome
 	FitnessFunc func(image.Image, int, int) float64
 }
 
-func NewPopulation(name string, num int, fitnessFunc func(image.Image, int, int) float64) *Population {
+func NewPopulation(config *GaImgConfig, name string, num int, fitnessFunc func(image.Image, int, int) float64) *Population {
 	p := &Population{}
+	p.Config = config
 	p.Name = name
 	p.Individuals = make([]*Chromosome, num)
 	for i := 0; i < num; i++ {
-		p.Individuals[i] = NewChromosome(GeneCount)
+		p.Individuals[i] = NewChromosome(config)
 	}
 	p.FitnessFunc = fitnessFunc
 	return p
@@ -43,21 +45,21 @@ func (p *Population) Next() {
 
 	next := make([]*Chromosome, len(p.Individuals))
 
-	elites := p.Individuals[:EliteCount]
+	elites := p.Individuals[:p.Config.EliteCount]
 	for i, elite := range elites {
 		next[i] = elite.Clone()
 	}
 
-	for i := 0; i < PopulationCount-EliteCount; i++ {
+	for i := 0; i < p.Config.PopulationCount-p.Config.EliteCount; i++ {
 		i1 := p.roulette()
 		i2 := p.roulette()
 		//i1 := p.tournament(TournamentCount)
 		//i2 := p.tournament(TournamentCount)
 		i3 := i1.Intersect(i2)
-		if rand.Float64() < MutateProbability {
-			i3.Mutate(int(GeneCount * MutateRatio))
+		if rand.Float64() < p.Config.MutateProbability {
+			i3.Mutate(int(float64(p.Config.GeneCount) * p.Config.MutateRatio))
 		}
-		next[EliteCount+i] = i3
+		next[p.Config.EliteCount+i] = i3
 	}
 	p.Individuals = next
 	p.Generation += 1

@@ -11,20 +11,21 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 type Chromosome struct {
+	Config    *GaImgConfig
 	Genes     []*Gene
 	Fitness   float64
 	Phenotype *image.RGBA
 }
 
-func NewChromosome(num int) *Chromosome {
+func NewChromosome(config *GaImgConfig) *Chromosome {
 	c := &Chromosome{}
-	c.Genes = make([]*Gene, num)
-	for i := 0; i < num; i++ {
-		c.Genes[i] = NewGene(time.Now().UnixNano())
+	c.Config = config
+	c.Genes = make([]*Gene, config.GeneCount)
+	for i := 0; i < config.GeneCount; i++ {
+		c.Genes[i] = NewGene(config)
 	}
 	return c
 }
@@ -37,6 +38,7 @@ func NewChromosomeFromDump(scanner *bufio.Scanner) *Chromosome {
 
 func (c1 *Chromosome) Intersect(c2 *Chromosome) *Chromosome {
 	c := &Chromosome{}
+	c.Config = c1.Config
 	ratio1 := c1.Fitness / (c1.Fitness + c2.Fitness)
 	/*
 		// ランダムに入れ替え
@@ -50,7 +52,7 @@ func (c1 *Chromosome) Intersect(c2 *Chromosome) *Chromosome {
 	*/
 
 	// 交差
-	count1 := int(GeneCount * ratio1)
+	count1 := int(float64(c.Config.GeneCount) * ratio1)
 	c.Genes = make([]*Gene, len(c1.Genes))
 	for i := 0; i < count1; i++ {
 		c.Genes[i] = c1.Genes[i]
@@ -63,10 +65,10 @@ func (c1 *Chromosome) Intersect(c2 *Chromosome) *Chromosome {
 func (c *Chromosome) Mutate(geneCount int) {
 	for i := 0; i < geneCount; i++ {
 		r := rand.Intn(len(c.Genes))
-		if UseGeneMutate {
+		if c.Config.UseGeneMutate {
 			c.Genes[r].Mutate()
 		} else {
-			c.Genes[r] = NewGene(time.Now().UnixNano())
+			c.Genes[r] = NewGene(c.Config)
 		}
 	}
 	c.Reset()
@@ -85,8 +87,8 @@ func (c *Chromosome) CalculateFitness(calc func(image.Image, int, int) float64) 
 	}
 
 	result := c.Image()
-	for y := 0; y < ImageSize; y++ {
-		for x := 0; x < ImageSize; x++ {
+	for y := 0; y < c.Config.imageSize; y++ {
+		for x := 0; x < c.Config.imageSize; x++ {
 			c.Fitness += calc(result, x, y)
 		}
 	}
@@ -103,6 +105,7 @@ func (c *Chromosome) CheckGenes() {
 
 func (c *Chromosome) Clone() *Chromosome {
 	clone := &Chromosome{}
+	clone.Config = c.Config
 	clone.Genes = make([]*Gene, len(c.Genes))
 	for i, g := range c.Genes {
 		clone.Genes[i] = g.Clone()
@@ -116,9 +119,9 @@ func (c *Chromosome) Reset() {
 }
 
 func (c *Chromosome) Decode() *image.RGBA {
-	c.Phenotype = image.NewRGBA(image.Rect(0, 0, ImageSize, ImageSize))
-	for y := 0; y < ImageSize; y++ {
-		for x := 0; x < ImageSize; x++ {
+	c.Phenotype = image.NewRGBA(image.Rect(0, 0, c.Config.imageSize, c.Config.imageSize))
+	for y := 0; y < c.Config.imageSize; y++ {
+		for x := 0; x < c.Config.imageSize; x++ {
 			c.Phenotype.Set(x, y, color.White)
 		}
 	}
