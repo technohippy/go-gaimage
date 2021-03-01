@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type Population struct {
@@ -37,6 +38,7 @@ func NewPopulationFromDump(scanner *bufio.Scanner) *Population {
 }
 
 func (p *Population) Next() {
+	p.calculateAllFitnesses()
 	p.sortIndividualsByFitness()
 
 	next := make([]*Chromosome, len(p.Individuals))
@@ -59,6 +61,18 @@ func (p *Population) Next() {
 	}
 	p.Individuals = next
 	p.Generation += 1
+}
+
+func (p *Population) calculateAllFitnesses() {
+	var wg sync.WaitGroup
+	wg.Add(len(p.Individuals))
+	for _, c := range p.Individuals {
+		go func(c *Chromosome) {
+			defer wg.Done()
+			c.CalculateFitness(p.FitnessFunc)
+		}(c)
+	}
+	wg.Wait()
 }
 
 func (p *Population) Survivor() *Chromosome {
