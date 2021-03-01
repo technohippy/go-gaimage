@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,7 +26,7 @@ const UseGeneMutate = true // true:mutate false:replace
 const ImageName = "cat"
 const ImageSize = 200
 
-const GenrationCount = 10000 //50000
+const GenrationCount = 500 //50000
 const PopulationCount = 40
 const EliteCount = PopulationCount / 4
 const TournamentCount = 2
@@ -35,10 +36,11 @@ const MutateRatio = 0.5
 const MutateProbability = 0.2
 const ShapeSizeMin = 4
 const ShapeSizeMax = 30
-const LocusCount = 10 // 7 (monotone) or 10 (colored)
+const LocusCount = 7 // 7 (monotone) or 10 (colored)
 
 const LogStride = 100
 
+const RunSeparately = true
 const RestoreFromDump = false
 
 func monocolor() bool {
@@ -58,6 +60,14 @@ func Run() {
 		log.Fatal("decode error ", err)
 	}
 
+	if !RunSeparately {
+		run(target)
+	} else {
+		runSeparately(target)
+	}
+}
+
+func run(target image.Image) {
 	var p *Population
 	if !RestoreFromDump {
 		p = NewPopulation("", PopulationCount, getFitnessFunc("", target))
@@ -86,47 +96,51 @@ func Run() {
 	writer := bufio.NewWriter(dump)
 	p.Dump(writer)
 	writer.Flush()
+}
 
-	/*
-		var wg sync.WaitGroup
-		ps := map[string]*Population{}
-		for _, mode := range []string{"r", "g", "b"} {
-			wg.Add(1)
-			go func(mode string) {
-				defer wg.Done()
+func runSeparately(target image.Image) {
+	if !monocolor() {
+		log.Fatal("LocusCount must be 7")
+	}
 
-				p := NewPopulation(mode, PopulationCount, getFitnessFunc(mode, target))
-				ps[mode] = p
+	var wg sync.WaitGroup
+	ps := map[string]*Population{}
+	wg.Add(3)
+	for _, mode := range []string{"r", "g", "b"} {
+		go func(mode string) {
+			defer wg.Done()
+
+			p := NewPopulation(mode, PopulationCount, getFitnessFunc(mode, target))
+			ps[mode] = p
+			if mode == "r" {
+				p.PrintAverageFitness()
+			}
+			for i := 0; i < GenrationCount; i++ {
+				p.Next()
+
 				if mode == "r" {
 					p.PrintAverageFitness()
 				}
-				for i := 0; i < GenrationCount; i++ {
-					p.Next()
-
-					if mode == "r" {
-						p.PrintAverageFitness()
-					}
-					liveScore(i, p)
-				}
-			}(mode)
-		}
-		wg.Wait()
-
-		chr := ps["r"].Survivor().Decode()
-		chg := ps["g"].Survivor().Decode()
-		chb := ps["b"].Survivor().Decode()
-		result := image.NewRGBA(image.Rect(0, 0, ImageSize, ImageSize))
-		for y := 0; y < ImageSize; y++ {
-			for x := 0; x < ImageSize; x++ {
-				r, _, _, _ := chr.At(x, y).RGBA()
-				_, g, _, _ := chg.At(x, y).RGBA()
-				_, _, b, _ := chb.At(x, y).RGBA()
-				result.Set(x, y, color.RGBA{uint8(r), uint8(g), uint8(b), 255})
+				liveScore(i, p)
 			}
+		}(mode)
+	}
+	wg.Wait()
+
+	chr := ps["r"].Survivor().Decode()
+	chg := ps["g"].Survivor().Decode()
+	chb := ps["b"].Survivor().Decode()
+	result := image.NewRGBA(image.Rect(0, 0, ImageSize, ImageSize))
+	for y := 0; y < ImageSize; y++ {
+		for x := 0; x < ImageSize; x++ {
+			r, _, _, _ := chr.At(x, y).RGBA()
+			_, g, _, _ := chg.At(x, y).RGBA()
+			_, _, b, _ := chb.At(x, y).RGBA()
+			result.Set(x, y, color.RGBA{uint8(r), uint8(g), uint8(b), 255})
 		}
-		f, _ := os.Create(fmt.Sprintf("./%v/result.png", ResultsDir))
-		png.Encode(f, result)
-	*/
+	}
+	f, _ := os.Create(fmt.Sprintf("./%v/result.png", ResultsDir))
+	png.Encode(f, result)
 }
 
 func getFitnessFunc(kind string, target image.Image) func(image.Image, int, int) float64 {
