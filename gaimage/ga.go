@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -26,7 +25,7 @@ const UseGeneMutate = true // true:mutate false:replace
 const ImageName = "cat"
 const ImageSize = 200
 
-const GenrationCount = 500 //50000
+const GenrationCount = 50 //50000
 const PopulationCount = 40
 const EliteCount = PopulationCount / 4
 const TournamentCount = 2
@@ -103,15 +102,13 @@ func runSeparately(target image.Image) {
 		log.Fatal("LocusCount must be 7")
 	}
 
-	var wg sync.WaitGroup
-	ps := map[string]*Population{}
-	wg.Add(3)
-	for _, mode := range []string{"r", "g", "b"} {
-		go func(mode string) {
-			defer wg.Done()
-
+	rCh := make(chan *Population)
+	gCh := make(chan *Population)
+	bCh := make(chan *Population)
+	chs := [](chan *Population){rCh, gCh, bCh}
+	for i, mode := range []string{"r", "g", "b"} {
+		go func(i int, mode string) {
 			p := NewPopulation(mode, PopulationCount, getFitnessFunc(mode, target))
-			ps[mode] = p
 			if mode == "r" {
 				p.PrintAverageFitness()
 			}
@@ -123,13 +120,12 @@ func runSeparately(target image.Image) {
 				}
 				liveScore(i, p)
 			}
-		}(mode)
+			chs[i] <- p
+		}(i, mode)
 	}
-	wg.Wait()
-
-	chr := ps["r"].Survivor().Decode()
-	chg := ps["g"].Survivor().Decode()
-	chb := ps["b"].Survivor().Decode()
+	chr := (<-rCh).Survivor().Decode()
+	chg := (<-gCh).Survivor().Decode()
+	chb := (<-bCh).Survivor().Decode()
 	result := image.NewRGBA(image.Rect(0, 0, ImageSize, ImageSize))
 	for y := 0; y < ImageSize; y++ {
 		for x := 0; x < ImageSize; x++ {
