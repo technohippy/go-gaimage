@@ -51,12 +51,12 @@ func NewGaImgConfig() *GaImgConfig {
 	config.UseTournament = false // true:tournament false:roulette
 	config.RunSeparately = false
 
-	config.GenrationCount = 50000
+	config.GenrationCount = 5000
 	config.PopulationCount = 40
 	config.EliteCount = 10
 	config.TournamentCount = 2
 	config.GeneCount = 300
-	config.LocusCount = 7 // 7 (monotone) or 10 (colored)
+	config.LocusCount = 10 // 7 (monotone) or 10 (colored)
 	config.MutateRatio = 0.5
 	config.MutateProbability = 0.2
 	config.ShapeSizeMin = 4
