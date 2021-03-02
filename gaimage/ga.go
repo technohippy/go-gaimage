@@ -72,7 +72,7 @@ func (c *GaImgConfig) Load(filename string) {
 }
 
 func (c *GaImgConfig) Save(filename string) {
-	file, err := os.Open(filename)
+	file, err := os.Create(filename)
 	if err != nil {
 		log.Fatalf("Invalid config file: %v", filename)
 	}
