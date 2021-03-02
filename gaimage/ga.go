@@ -15,8 +15,6 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-const LocusCount = 7 // 7 (monotone) or 10 (colored)
-
 type GaImgConfig struct {
 	ResultsDir      string
 	RestoreFromDump bool
@@ -32,6 +30,7 @@ type GaImgConfig struct {
 	EliteCount        int
 	TournamentCount   int
 	GeneCount         int
+	LocusCount        int // 7 (monotone) or 10 (colored)
 	MutateRatio       float64
 	MutateProbability float64
 	ShapeSizeMin      int
@@ -50,13 +49,14 @@ func NewGaImgConfig() *GaImgConfig {
 	config.UseAlpha = false
 	config.UseGeneMutate = true  // true:mutate false:replace
 	config.UseTournament = false // true:tournament false:roulette
-	config.RunSeparately = true
+	config.RunSeparately = false
 
-	config.GenrationCount = 50 //000
+	config.GenrationCount = 50000
 	config.PopulationCount = 40
 	config.EliteCount = 10
 	config.TournamentCount = 2
 	config.GeneCount = 300
+	config.LocusCount = 7 // 7 (monotone) or 10 (colored)
 	config.MutateRatio = 0.5
 	config.MutateProbability = 0.2
 	config.ShapeSizeMin = 4
@@ -81,6 +81,10 @@ func (c *GaImgConfig) Save(filename string) {
 	if err != nil {
 		log.Fatalf("Fail to save config: %v", filename)
 	}
+}
+
+func (c *GaImgConfig) Monocolor() bool {
+	return c.LocusCount == 7
 }
 
 type GaImg struct {
@@ -159,7 +163,7 @@ func (g *GaImg) run(target image.Image) {
 }
 
 func (g *GaImg) runSeparately(target image.Image) {
-	if !monocolor() {
+	if !g.Config.Monocolor() {
 		log.Fatal("LocusCount must be 7")
 	}
 
@@ -343,10 +347,6 @@ func runSeparately(target image.Image) {
 }
 */
 
-func monocolor() bool {
-	return LocusCount == 7
-}
-
 func getFitnessFunc(kind string, target image.Image) func(image.Image, int, int) float64 {
 	if kind == "grayscale" {
 		return createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
@@ -366,16 +366,9 @@ func getFitnessFunc(kind string, target image.Image) func(image.Image, int, int)
 			return math.Abs(float64(tb) - float64(rb))
 		})
 	} else {
-		if monocolor() {
-			return createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
-				gray := float64(tr)*0.3 + float64(tg)*0.59 + float64(tb)*0.11
-				return math.Abs(gray - float64(rr))
-			})
-		} else {
-			return createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
-				return math.Abs(float64(tr)-float64(rr)) + math.Abs(float64(tg)-float64(rg)) + math.Abs(float64(tb)-float64(rb))
-			})
-		}
+		return createFitnessFunc(target, func(tr, tg, tb, rr, rg, rb uint32) float64 {
+			return math.Abs(float64(tr)-float64(rr)) + math.Abs(float64(tg)-float64(rg)) + math.Abs(float64(tb)-float64(rb))
+		})
 	}
 }
 

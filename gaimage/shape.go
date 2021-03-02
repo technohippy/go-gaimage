@@ -17,9 +17,9 @@ type shapeCommon struct {
 	Color  color.RGBA
 }
 
-func newShapeCommon(config *GaImgConfig, props [LocusCount]float64) shapeCommon {
+func newShapeCommon(config *GaImgConfig, props []float64) shapeCommon {
 	var clr color.RGBA
-	if monocolor() {
+	if config.Monocolor() {
 		clr = color.RGBA{
 			uint8(props[LocusR] * 256),
 			uint8(props[LocusR] * 256),
@@ -110,7 +110,7 @@ type Rectangle struct {
 	shapeCommon
 }
 
-func NewRectangle(config *GaImgConfig, props [LocusCount]float64) *Rectangle {
+func NewRectangle(config *GaImgConfig, props []float64) *Rectangle {
 	r := &Rectangle{}
 	r.shapeCommon = newShapeCommon(config, props)
 	return r
@@ -126,7 +126,7 @@ type Circle struct {
 	shapeCommon
 }
 
-func NewCircle(config *GaImgConfig, props [LocusCount]float64) *Circle {
+func NewCircle(config *GaImgConfig, props []float64) *Circle {
 	c := &Circle{}
 	c.shapeCommon = newShapeCommon(config, props)
 	return c

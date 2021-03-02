@@ -25,12 +25,13 @@ const (
 
 type Gene struct {
 	Config     *GaImgConfig
-	Properties [LocusCount]float64
+	Properties []float64
 }
 
 func NewGene(config *GaImgConfig) *Gene {
 	gene := &Gene{}
 	gene.Config = config
+	gene.Properties = make([]float64, config.LocusCount)
 	for i, _ := range gene.Properties {
 		gene.Properties[i] = rand.Float64()
 	}
@@ -46,15 +47,13 @@ func NewGeneFromDump(scanner *bufio.Scanner) *Gene {
 func (g *Gene) Clone() *Gene {
 	clone := &Gene{}
 	clone.Config = g.Config
-	clone.Properties = [LocusCount]float64{}
-	for i, p := range g.Properties {
-		clone.Properties[i] = p
-	}
+	clone.Properties = append([]float64{}, g.Properties...)
 	return clone
 }
 
 func (g *Gene) Mutate() {
-	for i := 0; i < 1; i++ {
+	count := int(float64(len(g.Properties)) * g.Config.MutateRatio)
+	for i := 0; i < count; i++ {
 		n := rand.Intn(len(g.Properties))
 		g.Properties[n] = rand.Float64()
 	}
@@ -92,7 +91,7 @@ func (g *Gene) Restore(scanner *bufio.Scanner) {
 	v := kv[1]
 	if k == "size" {
 		s, _ := strconv.Atoi(v)
-		if LocusCount != s {
+		if g.Config.LocusCount != s {
 			log.Fatal("local count does not match")
 		}
 		for i := 0; i < s; i++ {
